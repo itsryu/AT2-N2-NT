@@ -6,13 +6,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 def run_pipeline() -> None:
-    logger.info("="*50)
-    logger.info("INICIANDO PIPELINE DE TREINAMENTO")
-    logger.info("="*50)
-    
     try:
         train_model.main()
-        logger.info("Pipeline de treinamento finalizado com sucesso.")
     except Exception as e:
         logger.error(f"Ocorreu um erro fatal ao executar o pipeline de treinamento: {e}", exc_info=True)
 
