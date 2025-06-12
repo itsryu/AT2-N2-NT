@@ -1,54 +1,39 @@
 import pandas as pd
-from typing import Tuple
+import joblib
+import logging
+import argparse
 
-class TitanicDataPreprocessor:
-    def __init__(self, is_training: bool = True):
-        self.is_training = is_training
-        self.imputation_values: dict = {}
+from src.config import settings
 
-    def _impute_age(self, df: pd.DataFrame) -> pd.DataFrame:
-        if self.is_training:
-            self.imputation_values['Age'] = df['Age'].median()
-        
-        df['Age'].fillna(self.imputation_values['Age'], inplace=True)
-        return df
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-    def _impute_embarked(self, df: pd.DataFrame) -> pd.DataFrame:
-        if self.is_training:
-            self.imputation_values['Embarked'] = df['Embarked'].mode()[0]
-        
-        df['Embarked'].fillna(self.imputation_values['Embarked'], inplace=True)
-        return df
-        
-    def _impute_fare(self, df: pd.DataFrame) -> pd.DataFrame:
-        if self.is_training:
-            self.imputation_values['Fare'] = df['Fare'].median()
+def make_predictions(input_path: str, model_path: str, fe_path: str, output_path: str) -> None:
+    logging.info(f"Carregando modelo de: {model_path}")
+    model = joblib.load(model_path)
+    
+    logging.info(f"Carregando pipeline de features de: {fe_path}")
+    fe_pipeline = joblib.load(fe_path)
 
-        df['Fare'].fillna(self.imputation_values['Fare'], inplace=True)
-        return df
+    logging.info(f"Carregando dados de teste de: {input_path}")
+    test_data = pd.read_csv(input_path)
+    passenger_ids = test_data['PassengerId']
+    
+    logging.info("Aplicando engenharia de features nos dados de teste...")
+    X_test_processed = fe_pipeline.transform(test_data)
+    
+    logging.info("Gerando previsões...")
+    predictions = model.predict(X_test_processed)
+    
+    submission_df = pd.DataFrame({'PassengerId': passenger_ids, 'Survived': predictions.astype(int)})
+    submission_df.to_csv(output_path, index=False)
+    logging.info(f"Arquivo de submissão salvo em: {output_path}")
 
-    def _engineer_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        df['Sex'] = df['Sex'].map({'male': 0, 'female': 1}).astype(int)
-        df['FamilySize'] = df['SibSp'] + df['Parch'] + 1
-        df['Has_Cabin'] = df['Cabin'].notnull().astype(int)
-        
-        df = pd.get_dummies(df, columns=['Embarked'], prefix='Embarked', drop_first=False)
-        
-        return df
-
-    def _ensure_all_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        required_cols = {'Embarked_C', 'Embarked_Q', 'Embarked_S'}
-        for col in required_cols:
-            if col not in df.columns:
-                df[col] = 0
-        return df
-
-    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
-        df_copy = df.copy()
-        df_copy = self._impute_age(df_copy)
-        df_copy = self._impute_embarked(df_copy)
-        df_copy = self._impute_fare(df_copy)
-        df_copy = self._engineer_features(df_copy)
-        df_copy = self._ensure_all_columns(df_copy)
-        
-        return df_copy
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Gera previsões para o desafio Titanic.")
+    parser.add_argument("--input", type=str, default=str(settings.TEST_FILE))
+    parser.add_argument("--output", type=str, default=str(settings.BASE_DIR / "submission.csv"))
+    parser.add_argument("--model", type=str, default=str(settings.BEST_MODEL_FILE))
+    parser.add_argument("--fe-pipeline", type=str, default=str(settings.FE_PIPELINE_FILE))
+    
+    args = parser.parse_args()
+    make_predictions(args.input, args.model, args.fe_pipeline, args.output)

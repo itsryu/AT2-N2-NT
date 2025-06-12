@@ -1,56 +1,38 @@
 import pandas as pd
-from typing import Tuple
+import numpy as np
 
-class TitanicDataPreprocessor:
-    def __init__(self, is_training: bool = True):
-        self.is_training = is_training
-        self.imputation_values: dict = {}
+def advanced_feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
+    df_copy = df.copy()
 
-    def _impute_age(self, df: pd.DataFrame) -> pd.DataFrame:
-        if self.is_training:
-            
-            self.imputation_values['Age'] = df['Age'].median()
-        
-        
-        df['Age'].fillna(self.imputation_values['Age'], inplace=True)
-        return df
+    # Extrair Título do Nome
+    df_copy["Title"] = df_copy["Name"].str.extract(" ([A-Za-z]+)\.", expand=False)
+    common_titles = {"Mr", "Miss", "Mrs", "Master"}
+    df_copy["Title"] = df_copy["Title"].apply(
+        lambda x: x if x in common_titles else "Other"
+    )
 
-    def _impute_embarked(self, df: pd.DataFrame) -> pd.DataFrame:
-        if self.is_training:
-            self.imputation_values['Embarked'] = df['Embarked'].mode()[0]
-        
-        df['Embarked'].fillna(self.imputation_values['Embarked'], inplace=True)
-        return df
-        
-    def _impute_fare(self, df: pd.DataFrame) -> pd.DataFrame:
-        if self.is_training:
-            self.imputation_values['Fare'] = df['Fare'].median()
+    # Criar Feature 'FamilySize' e 'IsAlone'
+    df_copy["FamilySize"] = df_copy["SibSp"] + df_copy["Parch"] + 1
+    df_copy["IsAlone"] = (df_copy["FamilySize"] == 1).astype(int)
 
-        df['Fare'].fillna(self.imputation_values['Fare'], inplace=True)
-        return df
+    # Agrupar Idade em Bins
+    df_copy["Age"] = df_copy["Age"].fillna(df_copy["Age"].median())
+    df_copy["AgeGroup"] = pd.cut(
+        df_copy["Age"],
+        bins=[0, 12, 18, 60, np.inf],
+        labels=["Child", "Teen", "Adult", "Senior"],
+    )
 
-    def _engineer_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        df['Sex'] = df['Sex'].map({'male': 0, 'female': 1}).astype(int)     
-        df['FamilySize'] = df['SibSp'] + df['Parch'] + 1
-        df['Has_Cabin'] = df['Cabin'].notnull().astype(int)
-        
-        df = pd.get_dummies(df, columns=['Embarked'], prefix='Embarked', drop_first=False)
-        
-        return df
+    # Agrupar Tarifa em Bins
+    df_copy["Fare"] = df_copy["Fare"].fillna(df_copy["Fare"].median())
+    df_copy["FareBin"] = pd.qcut(
+        df_copy["Fare"], 4, labels=["Low", "Mid", "High", "VeryHigh"], duplicates="drop"
+    )
 
-    def _ensure_all_columns(self, df: pd.DataFrame) -> pd.DataFrame:
-        required_cols = {'Embarked_C', 'Embarked_Q', 'Embarked_S'}
-        for col in required_cols:
-            if col not in df.columns:
-                df[col] = 0
-        return df
+    # Preencher valores ausentes em 'Embarked'
+    df_copy["Embarked"] = df_copy["Embarked"].fillna(df_copy["Embarked"].mode()[0])
 
-    def transform(self, df: pd.DataFrame) -> pd.DataFrame:
-        df_copy = df.copy()
-        df_copy = self._impute_age(df_copy)
-        df_copy = self._impute_embarked(df_copy)
-        df_copy = self._impute_fare(df_copy)
-        df_copy = self._engineer_features(df_copy)
-        df_copy = self._ensure_all_columns(df_copy)
-        
-        return df_copy
+    # Converter 'Sex' para numérico
+    df_copy["Sex"] = df_copy["Sex"].map({"male": 0, "female": 1}).astype(int)
+
+    return df_copy

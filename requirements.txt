@@ -5,3 +5,6 @@ joblib
 numpy
 matplotlib
 seaborn
+xgboost
+lightgbm
+optuna

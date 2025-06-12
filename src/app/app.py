@@ -1,100 +1,84 @@
 import streamlit as st
 import pandas as pd
 import joblib
+import sys
 import os
-from typing import Any
+import json
+from typing import Any, Dict
 
-st.set_page_config(
-    page_title="Previsão de Sobrevivência - Titanic",
-    page_icon="🚢",
-    layout="wide"
-)
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
+from src.config import settings
+from src.models.train_model import advanced_feature_engineering
+
+st.set_page_config(page_title="Previsão de Sobrevivência - Titanic", page_icon="🚢", layout="wide")
 
 @st.cache_resource
-def load_model(path: str) -> Any:
+def load_artifact(path: str) -> Any:
+    if not os.path.exists(path):
+        st.error(f"Artefato não encontrado em '{path}'. Execute o pipeline de treinamento primeiro.")
+        return None
+        
     try:
-        model = joblib.load(path)
-        return model
-    except FileNotFoundError:
-        st.error(f"Arquivo do modelo não encontrado em '{path}'. Por favor, execute o script de treinamento primeiro.")
-        return None
+        if path.endswith(".json"):
+            with open(path, 'r') as f:
+                return json.load(f)
+        else:
+            return joblib.load(path)
     except Exception as e:
-        st.error(f"Ocorreu um erro ao carregar o modelo: {e}")
+        st.error(f"Erro ao carregar o artefato de '{path}': {e}")
         return None
 
-
-MODEL_PATH = '../../artifacts/best_model.joblib'
-model = load_model(MODEL_PATH)
-
+model = load_artifact(str(settings.BEST_MODEL_FILE))
+metrics = load_artifact(str(settings.METRICS_FILE))
+binning_thresholds = metrics.get("binning_thresholds") if metrics else None
 
 st.title("🚢 Previsão de Sobrevivência no Titanic")
-st.markdown("""
-Esta aplicação utiliza um modelo de Machine Learning para prever a probabilidade de um passageiro sobreviver ao desastre do Titanic.
-Insira as informações do passageiro na barra lateral à esquerda para obter uma previsão.
-""")
-
+st.markdown("### Pipeline Campeão com Engenharia de Features Robusta e Stacking")
 
 st.sidebar.header("Informações do Passageiro")
 
 def user_input_features() -> pd.DataFrame:
     pclass = st.sidebar.selectbox("Classe da Passagem (Pclass)", (1, 2, 3))
-    sex = st.sidebar.selectbox("Sexo", ("Masculino", "Feminino"))
-    age = st.sidebar.slider("Idade (Age)", 0, 100, 29)
-    sibsp = st.sidebar.slider("Nº de Irmãos/Cônjuges a Bordo (SibSp)", 0, 8, 0)
-    parch = st.sidebar.slider("Nº de Pais/Filhos a Bordo (Parch)", 0, 6, 0)
+    name = st.sidebar.text_input("Nome Completo", "Mr. John Doe")
+    sex = st.sidebar.selectbox("Sexo", ("male", "female"))
+    age = st.sidebar.slider("Idade (Age)", 0, 100, 29, help="O modelo irá estimar este valor se ausente, mas um valor real melhora a predição.")
+    sibsp = st.sidebar.slider("Nº de Irmãos/Cônjuges (SibSp)", 0, 8, 0)
+    parch = st.sidebar.slider("Nº de Pais/Filhos (Parch)", 0, 6, 0)
     fare = st.sidebar.number_input("Tarifa (Fare)", 0.0, 600.0, 32.2)
-    embarked = st.sidebar.selectbox("Porto de Embarque (Embarked)", ("Southampton", "Cherbourg", "Queenstown"))
-    
-    sex_map = {"Masculino": 0, "Feminino": 1}
-    embarked_map = {"Southampton": 0, "Cherbourg": 1, "Queenstown": 2}
+    embarked = st.sidebar.selectbox("Porto de Embarque (Embarked)", ('S', 'C', 'Q'))
     
     data = {
-        'Pclass': pclass,
-        'Age': age,
-        'SibSp': sibsp,
-        'Parch': parch,
-        'Fare': fare,
-        'Sex': sex_map[sex],
-        'Embarked': embarked_map[embarked]
+        'PassengerId': [0], 'Pclass': [pclass], 'Name': [name], 'Sex': [sex],
+        'Age': [age], 'SibSp': [sibsp], 'Parch': [parch], 'Ticket': [''],
+        'Fare': [fare], 'Cabin': [None], 'Embarked': [embarked]
     }
-    
-    features = pd.DataFrame(data, index=[0])
-    return features
+    return pd.DataFrame(data)
 
-if model:
-    input_df = user_input_features()
-    
-    st.subheader("Dados do Passageiro Inseridos:")
-    st.write(input_df)
-    
+if model and binning_thresholds:
+    input_df_raw = user_input_features()
+    st.subheader("Dados do Passageiro Inseridos (Brutos):")
+    st.write(input_df_raw[['Name', 'Pclass', 'Sex', 'Age', 'Fare', 'Embarked']])
+
     if st.button("Realizar Previsão", type="primary"):
-        try:
-            prediction_proba = model.predict_proba(input_df)
-            prediction = model.predict(input_df)
+        input_df_processed = advanced_feature_engineering(input_df_raw, bins=binning_thresholds)
 
-            st.subheader("Resultado da Previsão")
-            
+        st.subheader("Dados Processados (Enviados ao Modelo):")
+        st.write(input_df_processed[['Title', 'FamilySize', 'IsAlone', 'AgeGroup', 'FareBin']])
+        
+        try:
+            prediction = model.predict(input_df_processed)
+            prediction_proba = model.predict_proba(input_df_processed)
             survival_probability = prediction_proba[0][1]
 
-            col1, col2 = st.columns([1, 2])
-            
-            with col1:
-                if prediction[0] == 1:
-                    st.image("https://em-content.zobj.net/source/microsoft-teams/363/thumbs-up_1f44d.png", width=100)
-                else:
-                    st.image("https://em-content.zobj.net/source/microsoft-teams/363/thumbs-down_1f44e.png", width=100)
-
-            with col2:
-                if prediction[0] == 1:
-                    st.success(f"**Provavelmente Sobreviveria**")
-                    st.progress(survival_probability)
-                    st.metric(label="Probabilidade de Sobrevivência", value=f"{survival_probability:.2%}")
-                else:
-                    st.error(f"**Provavelmente NÃO Sobreviveria**")
-                    st.progress(survival_probability)
-                    st.metric(label="Probabilidade de Sobrevivência", value=f"{survival_probability:.2%}")
+            st.subheader("Resultado da Previsão")
+            if prediction[0] == 1:
+                st.success(f"**Provavelmente Sobreviveria** (Probabilidade: {survival_probability:.2%})")
+            else:
+                st.error(f"**Provavelmente NÃO Sobreviveria** (Probabilidade de Sobrevivência: {survival_probability:.2%})")
+            st.progress(survival_probability)
         except Exception as e:
             st.error(f"Ocorreu um erro durante a predição: {e}")
 
 else:
-    st.warning("O modelo não está carregado. Execute o script `src/models/train_model.py` para treinar e salvar um modelo.")
+    st.warning("Um ou mais artefatos do modelo não foram encontrados. Execute `python -m src.main` para treinar o pipeline campeão.")
