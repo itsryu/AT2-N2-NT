@@ -25,6 +25,7 @@ def check_artifacts_exist() -> bool:
 def load_passenger_data() -> pd.DataFrame:
     return pd.read_csv(settings.TRAIN_FILE)
 
+@st.cache_data
 def delete_artifacts():
     files_to_delete = [
         settings.BEST_MODEL_FILE,
@@ -114,17 +115,16 @@ else:
 
     passenger_df = load_passenger_data()
     metrics = load_artifact(str(settings.METRICS_FILE))
+    model = load_artifact(str(settings.BEST_MODEL_FILE))
+    fe_pipeline = load_artifact(str(settings.FE_PIPELINE_FILE))
     
     st.sidebar.title("🚢 Painel de Navegação")
-    
-    with st.sidebar.expander("⚠️ Opções Avançadas"):
-        if st.button("Apagar e Retreinar Modelos", type="primary", help="Remove todos os modelos treinados e volta para a tela de configuração."):
-            delete_artifacts()
-            st.success("Modelos e artefatos apagados. Recarregando...")
-            time.sleep(2)
-            st.rerun()
 
-    page = st.sidebar.radio("Selecione uma página:", ["Métricas e Predição", "Análise Exploratória (EDA)"])
+    page = st.sidebar.radio("Selecione uma página:", [
+        "Métricas e Predição",
+        "Análise Exploratória (EDA)",
+        "Gerar Submissão Kaggle"
+    ])
 
     if page == "Análise Exploratória (EDA)":
         st.title("📊 Análise Exploratória dos Dados do Titanic")
@@ -141,39 +141,46 @@ else:
                         st.components.v1.html(f.read(), height=500, scrolling=True)
 
     elif page == "Métricas e Predição":
-        st.title("📈 Métricas de Modelos e Predição de Sobrevivência")
+        st.title("📈 Métricas e Predição de Sobrevivência")
 
-        if metrics:
-            st.header("🎯 Performance dos Modelos")
+        if metrics and model and fe_pipeline:
+            st.header("🔮 Selecione o Modelo")
             
-            for model_name, data in metrics.get("individual_models", {}).items():
-                with st.container():
-                    col1, _, _ = st.columns(3)
-                    col1.metric(label=f"Modelo: **{model_name}**", value=f"{data['accuracy']:.4f}", delta=f"± {data.get('std_dev', 0.0):.4f}", help="Acurácia e desvio padrão da validação cruzada.")
-                    
-            if "ensemble_model" in metrics:
-                ens = metrics["ensemble_model"]
-                st.subheader("🚀 Modelo Ensemble (Stacking)")
-                col1, col2 = st.columns(2)
-                col1.metric(label="Acurácia (Ensemble)", value=f"{ens['accuracy']:.4f}", delta=f"± {ens.get('std_dev', 0.0):.4f}")
-                col2.info(f"**Estimadores Base:** {', '.join(ens['estimators'])}")
-
-        st.header("🔮 Realizar Nova Predição")
-
-        models = load_artifact(str(settings.BEST_MODEL_FILE))
-        fe_pipeline = load_artifact(str(settings.FE_PIPELINE_FILE))
-        
-        if models and fe_pipeline:
             model_options = list(metrics.get("individual_models", {}).keys())
             if "ensemble_model" in metrics:
                 model_options.append("Ensemble (Stacking)")
             
-            model_choice = st.selectbox("Escolha um modelo para predição:", model_options)
+            model_choice = st.selectbox("Escolha um modelo para ver suas métricas e usar para predição:", model_options)
+
+            st.header("🎯 Performance do Modelo Selecionado")
+
+            with st.container(border=True):
+                if model_choice == "Ensemble (Stacking)":
+                    ens_data = metrics["ensemble_model"]
+                    col1, col2 = st.columns(2)
+                    col1.metric(
+                        label="Acurácia (Ensemble)", 
+                        value=f"{ens_data['accuracy']:.4f}", 
+                        delta=f"± {ens_data.get('std_dev', 0.0):.4f}",
+                        help="Acurácia e desvio padrão da validação cruzada."
+                    )
+                    col2.info(f"**Estimadores Base:** {', '.join(ens_data['estimators'])}")
+                else:
+                    model_data = metrics.get("individual_models", {}).get(model_choice)
+                    if model_data:
+                        st.metric(
+                            label=f"Acurácia: {model_choice}",
+                            value=f"{model_data['accuracy']:.4f}",
+                            delta=f"± {model_data.get('std_dev', 0.0):.4f}",
+                            help="Acurácia e desvio padrão da validação cruzada."
+                        )
+                    else:
+                        st.warning("Métricas não encontradas para o modelo selecionado.")
 
             if model_choice == "Ensemble (Stacking)":
-                model = models
+                model_to_predict = model
             else:
-                model = models.named_estimators_[model_choice.lower()]
+                model_to_predict = model.named_estimators_[model_choice.lower()]
 
             st.sidebar.header("Parâmetros do Passageiro")
             
@@ -186,11 +193,9 @@ else:
             
             if selected_name != "Digitar manualmente":
                 p_data = passenger_df[passenger_df['Name'] == selected_name].iloc[0]
-                sex_val = p_data['Sex']
-                age_default = int(p_data['Age']) if pd.notna(p_data['Age']) else 29
+                sex_val, age_default = p_data['Sex'], int(p_data['Age']) if pd.notna(p_data['Age']) else 29
                 sibsp_default, parch_default = int(p_data['SibSp']), int(p_data['Parch'])
-                fare_default = float(p_data['Fare'])
-                pclass_val = int(p_data['Pclass'])
+                fare_default, pclass_val = float(p_data['Fare']), int(p_data['Pclass'])
                 embarked_val = p_data['Embarked'] if pd.notna(p_data['Embarked']) else 'S'
             else:
                 p_data = None
@@ -205,9 +210,7 @@ else:
             pclass_default_label = [k for k, v in pclass_map.items() if v == pclass_val][0]
             embarked_default_label = [k for k, v in embarked_map.items() if v == embarked_val][0]
 
-            sex_default_index = sex_options.index(sex_default_label)
-            pclass_default_index = pclass_options.index(pclass_default_label)
-            embarked_default_index = embarked_options.index(embarked_default_label)
+            sex_default_index, pclass_default_index, embarked_default_index = sex_options.index(sex_default_label), pclass_options.index(pclass_default_label), embarked_options.index(embarked_default_label)
 
             sex_label = st.sidebar.selectbox("Sexo", sex_options, index=sex_default_index, key='sex')
             age = st.sidebar.slider("Idade", 0, 100, age_default, key='age')
@@ -217,28 +220,20 @@ else:
             pclass_label = st.sidebar.selectbox("Classe do Bilhete", pclass_options, index=pclass_default_index, key='pclass')
             embarked_label = st.sidebar.selectbox("Porto de Embarque", embarked_options, index=embarked_default_index, key='embarked')
             
-            name_to_use = selected_name if p_data is not None else "Manual Input"
-
-            if st.button("Realizar Predição com " + model_choice, type="primary"):
+            if st.button(f"Realizar Predição com {model_choice}", type="primary", use_container_width=True):
                 input_data = {
-                    'PassengerId': [0], 
-                    'Pclass': [pclass_map[pclass_label]], 
-                    'Name': [name_to_use], 
-                    'Sex': [sex_map[sex_label]],
-                    'Age': [age], 
-                    'SibSp': [sibsp], 
-                    'Parch': [parch], 
-                    'Ticket': [''],
-                    'Fare': [fare], 
-                    'Cabin': [None], 
+                    'PassengerId': [0], 'Pclass': [pclass_map[pclass_label]], 
+                    'Name': [selected_name if p_data is not None else "Manual Input"], 
+                    'Sex': [sex_map[sex_label]], 'Age': [age], 'SibSp': [sibsp], 
+                    'Parch': [parch], 'Ticket': [''], 'Fare': [fare], 'Cabin': [None], 
                     'Embarked': [embarked_map[embarked_label]]
                 }
                 input_df = pd.DataFrame(input_data)
                 
                 processed_df = fe_pipeline.transform(input_df)
                 
-                prediction = model.predict(processed_df)
-                prediction_proba = model.predict_proba(processed_df)
+                prediction = model_to_predict.predict(processed_df)
+                prediction_proba = model_to_predict.predict_proba(processed_df)
                 survival_probability = prediction_proba[0][1]
 
                 if prediction[0] == 1:
@@ -246,4 +241,78 @@ else:
                 else:
                     st.error(f"**Resultado:** Passageiro Provavelmente **NÃO SOBREVIVERIA** (Probabilidade de Sobrevivência: {survival_probability:.2%})")
         else:
-            st.error("Não foi possível carregar os modelos ou o pipeline de features. Por favor, treine-os primeiro.")
+            st.error("Não foi possível carregar os artefatos necessários (modelo/pipeline/métricas). Por favor, treine os modelos primeiro.")
+
+    elif page == "Gerar Submissão Kaggle":
+        st.title("📥 Gerar Arquivo de Submissão para o Kaggle")
+        st.write("Esta seção processa o arquivo `test.csv`, gera as predições com o modelo final e cria o arquivo `submission.csv`.")
+
+        test_file_path = str(settings.TEST_FILE)
+        if not os.path.exists(test_file_path):
+             st.error(f"Arquivo de teste não encontrado em: `{test_file_path}`. Verifique o caminho em `src/config/settings.py`.")
+        elif not model or not fe_pipeline:
+            st.error("Não foi possível carregar os artefatos necessários (modelo/pipeline). Por favor, treine os modelos primeiro.")
+        else:
+            if st.button("Gerar Arquivo", type="secondary", help="Processa o arquivo de teste e gera o arquivo de submissão para o Kaggle."):
+                with st.spinner("Carregando e processando os dados de teste..."):
+                    try:
+                        test_df = pd.read_csv(test_file_path)
+                        passenger_ids = test_df['PassengerId']
+
+                        processed_test_df = fe_pipeline.transform(test_df)
+                        predictions = model.predict(processed_test_df)
+
+                        submission_df = pd.DataFrame({
+                            "PassengerId": passenger_ids,
+                            "Survived": predictions
+                        })
+
+                        st.success("Arquivo de submissão gerado com sucesso!")
+                        st.dataframe(
+                            submission_df,
+                            use_container_width=True,
+                            hide_index=False,
+                            height=400
+                        )
+
+                        csv_data = submission_df.to_csv(index=False).encode('utf-8')
+
+                        st.download_button(
+                           label="📥 Baixar submission.csv",
+                           data=csv_data,
+                           file_name='submission.csv',
+                           mime='text/csv',
+                        )
+
+                    except Exception as e:
+                        st.error(f"Ocorreu um erro inesperado durante a geração do arquivo: {e}")
+
+    with st.sidebar.expander("⚠️ Opções Avançadas"):
+        if st.button("Apagar Modelos", type="primary", help="Remove todos os modelos treinados e volta para a tela de configuração.", use_container_width=True):
+            st.session_state['confirm_delete_artifacts'] = True
+
+        if 'confirm_delete_artifacts' in st.session_state and st.session_state['confirm_delete_artifacts']:
+            st.warning("Tem certeza que deseja apagar todos os modelos e artefatos? Esta ação não pode ser desfeita.")
+
+            col1, col2 = st.columns(2)
+            
+            confirm_delete = col1.button(
+                "Sim, apagar", 
+                key="confirm_delete", 
+                use_container_width=True
+            )
+            cancel_delete = col2.button(
+                "Cancelar", 
+                key="cancel_delete", 
+                use_container_width=True
+            )
+            
+            if confirm_delete:
+                delete_artifacts()
+                st.success("Modelos apagados. Recarregando...")
+                del st.session_state['confirm_delete_artifacts']
+                time.sleep(2)
+                st.rerun()
+            elif cancel_delete:
+                del st.session_state['confirm_delete_artifacts']
+                st.rerun()
