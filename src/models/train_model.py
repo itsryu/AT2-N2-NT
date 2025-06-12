@@ -17,7 +17,6 @@ from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, OneHotEncoder, FunctionTransformer
 from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
 from sklearn.ensemble import StackingClassifier
 from sklearn.linear_model import LogisticRegression
 
@@ -31,7 +30,6 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 logger = logging.getLogger(__name__)
 
 TrainResult = Tuple[str, Pipeline, float, float, Dict[str, Any]]
-
 
 def create_modeling_pipeline(model: Any) -> Pipeline:
     numeric_features = ["Age", "Fare", "FamilySize"]
