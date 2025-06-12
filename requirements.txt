@@ -8,3 +8,7 @@ seaborn
 xgboost
 lightgbm
 optuna
+kaleido
+ipython
+plotly
+nbformat
