@@ -1,4 +1,12 @@
+
 <body>
+<div>
+    <h2>🚀 Objetivo</h2>
+        <p>O desafio consiste em criar um modelo preditivo capaz de determinar a probabilidade de sobrevivência de determinado passageiro com base em um conjunto de atributos individuais.</p>
+    <h2>🧾 Requisitos</h2>
+        <ul>
+            <li>Python 3.12</li>
+        </ul>
     <h2>🛼 Rodando a aplicação</h2>
     <ul>
         <li>
@@ -23,4 +31,11 @@
             </ol>
         </li>
     </ul>
+    <h2>Métricas Atingidas</h2>
+        <ul>
+            <li><strong>Score no Kaggle:</strong> 0.78279</li>
+            <li><strong>Leaderboard no Kaggle:</strong> 3275</li>
+            <li><strong>Modelo com melhor acurácia:</strong> Stacking Ensemble</li>
+            <li><strong>Acurácia do melhor modelo:</strong> 0.8563</li>
+        </ul>
 </body>
