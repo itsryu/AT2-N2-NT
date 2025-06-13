@@ -21,7 +21,7 @@ from sklearn.ensemble import StackingClassifier
 from sklearn.linear_model import LogisticRegression
 
 from src.config import settings
-from src.processing.preprocessor import advanced_feature_engineering
+from src.processing.preprocessor import feature_engineering
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -136,7 +136,7 @@ def main(models_to_train: List[str], n_trials: int) -> None:
     df = pd.read_csv(str(settings.TRAIN_FILE))
     logger.info("Aplicando engenharia de features...")
     
-    fe_pipeline = Pipeline(steps=[('feature_engineering', FunctionTransformer(advanced_feature_engineering))])
+    fe_pipeline = Pipeline(steps=[('feature_engineering', FunctionTransformer(feature_engineering))])
     
     X = df.drop("Survived", axis=1)
     y = df["Survived"]

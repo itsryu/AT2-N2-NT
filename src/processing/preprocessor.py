@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Optional
 
-def advanced_feature_engineering(df: pd.DataFrame, bins: Optional[Dict[str, list]] = None) -> pd.DataFrame:
+def feature_engineering(df: pd.DataFrame, bins: Optional[Dict[str, list]] = None) -> pd.DataFrame:
     df_copy = df.copy()
     
     if 'Age' in df_copy.columns:
